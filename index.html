@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Air Quality Dashboard</title>
+
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Poppins', sans-serif; }
+    body {
+      min-height: 100vh;
+      background: linear-gradient(135deg, #667eea, #764ba2);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: white;
+    }
+    body.dark { background: linear-gradient(135deg, #1f1c2c, #928dab); }
+    .dashboard { width: 950px; padding: 30px; }
+    h1 { text-align: center; margin-bottom: 20px; }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 25px;
+    }
+
+    .connect-btn, .toggle-btn {
+      padding: 12px 25px;
+      border: none;
+      border-radius: 30px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+
+    .connect-btn {
+      background: linear-gradient(135deg, #43cea2, #185a9d);
+      color: white;
+    }
+
+    .toggle-btn {
+      background: rgba(255,255,255,0.2);
+      color: white;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 25px;
+    }
+
+    .card {
+      background: rgba(255,255,255,0.15);
+      backdrop-filter: blur(12px);
+      border-radius: 20px;
+      padding: 25px;
+      text-align: center;
+    }
+
+    .value {
+      font-size: 36px;
+      font-weight: 600;
+    }
+
+    .status {
+      font-size: 18px;
+      margin-top: 5px;
+    }
+
+    .good { color: #2ecc71; }
+    .moderate { color: #f1c40f; }
+    .bad { color: #e74c3c; }
+
+    canvas {
+      background: rgba(255,255,255,0.1);
+      border-radius: 15px;
+      padding: 10px;
+    }
+
+    .footer {
+      text-align: center;
+      margin-top: 15px;
+      font-size: 14px;
+    }
+  </style>
+</head>
+
+<body>
+<div class="dashboard">
+
+  <h1>Air Quality Monitoring Dashboard</h1>
+
+  <div class="top-bar">
+    <button class="connect-btn" onclick="connect()">🔌 Connect Arduino</button>
+    <button class="toggle-btn" onclick="toggleDark()">🌙 Dark / Light</button>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h2>Gas Level (MQ135)</h2>
+      <div class="value" id="air">--</div>
+      <div class="status" id="status">Waiting for data...</div>
+      <canvas id="airGauge" width="200" height="200"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Temperature</h2>
+      <div class="value" id="temp">-- °C</div>
+      <canvas id="tempChart"></canvas>
+    </div>
+
+    <div class="card">
+      <h2>Humidity</h2>
+      <div class="value" id="hum">-- %</div>
+      <canvas id="humChart"></canvas>
+    </div>
+  </div>
+
+  <div class="footer">Powered by Arduino, Web Serial & Telegram Bot</div>
+</div>
+
+<script>
+function toggleDark() {
+  document.body.classList.toggle('dark');
+}
+
+/* ---------------- CHARTS ---------------- */
+
+const tempChart = new Chart(document.getElementById('tempChart').getContext('2d'), {
+  type: 'line',
+  data: { labels: [], datasets: [{ data: [], borderWidth: 2 }] },
+  options: { plugins: { legend: { display: false } }, scales: { x: { display: false } } }
+});
+
+const humChart = new Chart(document.getElementById('humChart').getContext('2d'), {
+  type: 'line',
+  data: { labels: [], datasets: [{ data: [], borderWidth: 2 }] },
+  options: { plugins: { legend: { display: false } }, scales: { x: { display: false } } }
+});
+
+const airGauge = new Chart(document.getElementById('airGauge'), {
+  type: 'doughnut',
+  data: { datasets: [{ data: [0, 100] }] },
+  options: { rotation: -90, circumference: 180, cutout: '70%', plugins: { legend: { display: false } } }
+});
+
+/* ---------------- SERIAL ---------------- */
+
+let port, reader;
+
+async function connect() {
+  port = await navigator.serial.requestPort();
+  await port.open({ baudRate: 9600 });
+  reader = port.readable.getReader();
+  readData();
+}
+
+/* ---------------- TELEGRAM SEND (NEW) ---------------- */
+
+function sendGasToTelegram(gas) {
+  fetch("http://localhost:3000/gas", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ gas: gas })
+  }).catch(err => console.log("Telegram error:", err));
+}
+
+/* ---------------- READ DATA ---------------- */
+
+/*async function readData() {
+  while (true) {
+    const { value } = await reader.read();
+    const text = new TextDecoder().decode(value);
+    const data = text.trim().split(",");
+
+    if (data.length === 3) {
+      let gas = parseInt(data[0]);
+      let temp = parseFloat(data[1]);
+      let hum = parseFloat(data[2]);
+
+      document.getElementById("air").innerText = gas;
+      document.getElementById("temp").innerText = temp + " °C";
+      document.getElementById("hum").innerText = hum + " %";
+
+      const status = document.getElementById("status");
+
+      if (gas < 151) {
+        status.innerText = "GOOD 😊";
+        status.className = "status good";
+      } else if (gas < 200) {
+        status.innerText = "POOR ⚠️";
+        status.className = "status moderate";
+      } else if (gas < 300) {
+        status.innerText = "VERY BAD 🚨";
+        status.className = "status bad";
+      } else {
+        status.innerText = "TOXIC ☠️";
+        status.className = "status bad";
+      }
+
+      updateChart(tempChart, temp);
+      updateChart(humChart, hum);
+
+      airGauge.data.datasets[0].data = [
+        Math.min(gas / 5, 100),
+        100 - Math.min(gas / 5, 100)
+      ];
+      airGauge.update();
+
+      /* 🔔 SEND TO TELEGRAM (NEW) */
+     // sendGasToTelegram(gas);
+    //}
+  //}
+//}
+
+async function readData() {
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value);
+
+    // Split when '#' comes
+    let packets = buffer.split("#");
+    buffer = packets.pop(); // keep incomplete packet
+
+    for (let packet of packets) {
+      let data = packet.trim().split(",");
+
+      if (data.length === 3) {
+        let gas = parseInt(data[0]);
+        let temp = parseFloat(data[1]);
+        let hum = parseFloat(data[2]);
+
+        if (isNaN(gas)) continue;
+
+        document.getElementById("air").innerText = gas;
+        document.getElementById("temp").innerText = temp + " °C";
+        document.getElementById("hum").innerText = hum + " %";
+
+        const status = document.getElementById("status");
+
+        if (gas < 151) {
+          status.innerText = "GOOD 😊";
+          status.className = "status good";
+        } else if (gas < 200) {
+          status.innerText = "POOR ⚠️";
+          status.className = "status moderate";
+        } else if (gas < 300) {
+          status.innerText = "VERY BAD 🚨";
+          status.className = "status bad";
+        } else {
+          status.innerText = "TOXIC ☠️";
+          status.className = "status bad";
+        }
+
+        updateChart(tempChart, temp);
+        updateChart(humChart, hum);
+
+        airGauge.data.datasets[0].data = [
+          Math.min(gas / 5, 100),
+          100 - Math.min(gas / 5, 100)
+        ];
+        airGauge.update();
+
+        sendGasToTelegram(gas);
+      }
+    }
+  }
+}
+
+
+function updateChart(chart, value) {
+  chart.data.labels.push('');
+  chart.data.datasets[0].data.push(value);
+  if (chart.data.labels.length > 20) {
+    chart.data.labels.shift();
+    chart.data.datasets[0].data.shift();
+  }
+  chart.update();
+}
+</script>
+
+</body>
+</html>
