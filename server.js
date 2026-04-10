@@ -3,8 +3,8 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const path = require('path'); 
 
-const TOKEN = "8229226632:AAHq9C0LurhuBANaytMhItsPPcPvnD6UkgU";
-const CHAT_ID = "8475231293";
+const TOKEN = "your_token";
+const CHAT_ID = "your_chat_id";
 
 const bot = new TelegramBot(TOKEN, { polling: false });
 const app = express();
